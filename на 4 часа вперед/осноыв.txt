@@ -1,0 +1,49 @@
+import ccxt
+import pandas as pd
+import time
+
+# Настройки
+symbol = 'BTC/USDT'
+timeframe = '5m'
+limit = 1000
+
+exchange = ccxt.binance()
+
+# Скачивание 5m свечей
+ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+
+# Преобразуем время
+df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)  # utc=True делает aware
+df.set_index('timestamp', inplace=True)
+
+# Функция агрегации свечей
+def resample_ohlcv(df, tf_str):
+    ohlc_dict = {
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last',
+        'volume': 'sum'
+    }
+    resampled = df.resample(tf_str).agg(ohlc_dict).dropna()
+    
+    # Удалим последнюю свечу, если она незавершена
+    now = pd.Timestamp.now(tz='UTC')
+    tf_minutes = int(tf_str.replace('min', '').replace('h', ''))
+    frame_ms = tf_minutes * 60 * 1000
+    last_candle_time = resampled.index[-1]
+    
+    if (now - last_candle_time).total_seconds() * 1000 < frame_ms:
+        resampled = resampled.iloc[:-1]
+    return resampled
+
+# Создаём таймфреймы
+df_30m = resample_ohlcv(df, '30min')
+df_1h = resample_ohlcv(df, '1h')
+df_4h = resample_ohlcv(df, '4h')
+
+# Выводим результат
+print("Последние 3 свечи 30m:\n", df_30m.tail(3))
+print("\nПоследние 3 свечи 1h:\n", df_1h.tail(3))
+print("\nПоследние 3 свечи 4h:\n", df_4h.tail(3))
